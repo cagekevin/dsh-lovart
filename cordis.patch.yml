@@ -1,0 +1,6 @@
+# dsh-lovart 的 bundle 层。
+# `dsh plugin add` 把本包装进 profile 后，profile 的 dsh.profile.bundles 选中它，
+# 下面的 insert 才会被合进 cordis 组合；id 与包名对齐，name 按包名解析到已安装副本。
+- insert:
+    - id: lovart
+      name: "dsh-lovart"

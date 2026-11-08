@@ -1,0 +1,1271 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dsh-lovart · 侧栏图墙 mockup（P2 补全 + A/B 两种多任务组织）</title>
+<!--
+  验收用的静态 mockup，不属于插件产物（不进 npm files 白名单）。
+
+  基准线：侧栏不是任务列表。任务生命周期、控制工具、会话头 job 列表全部复用 DSH；
+  本插件自建的只有四件事：侧栏图墙、并发闸、落盘命名、确认操作。
+  因此这一版只补 P2 范围 —— 垫图、模型/比例/尺寸、重跑 —— 图墙的多任务组织画两种让用户选。
+
+  能力依据（只读核对 ~/Documents/lovart 自动，2026-11-08 版本）：
+  - 垫图：本地文件 / 粘贴 / 拖入 → POST /v1/openapi/file/upload（multipart，字段名 file）
+    → 返回 data.url → 塞进 POST /chat 的 attachments（string[]）。没有张数上限。
+  - 模型：models.rs 的 MODEL_SPECS（id / category / tool / readable_name），默认 nano-bn-2。
+  - 比例/尺寸：ui/app.js 的 RATIOS（1:1、3:4、4:3、16:9、9:16）与 SIZES（1K/2K/4K），
+    默认 3:4 / 2K；三者互不约束，ratio/size 只拼进 prompt 文本。
+  - 多任务：run.rs 的 board_order —— active → queued → waiting → finished；
+    active/queued 按提交先后升序，waiting/finished 按进入该状态的时刻倒序。
+
+  ⚠️ 本仓 host 目前没有 attachments、/file/upload、重跑路由（规范把垫图排在 P2）。
+     在 P2 落地前，真组件不要渲染 .lovart-refs / .lovart-params 里的模型比例尺寸 / 重跑按钮；
+     mock 画出来是为了先定交互。
+
+  - 面板内 class 与 src/client/styles.ts 同名同值；新增的 .lovart-* 是待搬进
+    styles.ts 的候选，用注释标出。
+  - 面板外与 .mock-* 只属于本文件，不会搬进真组件。
+  - 图片一律用 CSS 渐变占位（.ph-1 ~ .ph-4），不引外部资源、不内联样式。
+-->
+<style>
+  :root {
+    color-scheme: light;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    margin: 0;
+    height: 100%;
+  }
+
+  body {
+    background: #f3f4f6;
+    color: #1f2328;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+      "Helvetica Neue", Arial, sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── 以下 mock-* 只在 mock 里出现 ─────────────────────────────────── */
+
+  .mock-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px dashed #d1d5db;
+    background: #ffffff;
+  }
+
+  .mock-tag {
+    padding: 1px 8px;
+    border: 1px dashed #9ca3af;
+    border-radius: 999px;
+    color: #6b7280;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+
+  .mock-switch {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .mock-btn {
+    padding: 4px 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #374151;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .mock-btn:hover {
+    border-color: #9ca3af;
+  }
+
+  .mock-btn[aria-pressed="true"] {
+    border-color: #111827;
+    background: #111827;
+    color: #ffffff;
+  }
+
+  .mock-hint {
+    color: #9ca3af;
+    font-size: 11px;
+  }
+
+  .mock-stage {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    align-items: flex-start;
+    padding: 28px 16px 64px;
+  }
+
+  .mock-sidebar {
+    width: 340px;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 8px 24px rgba(17, 24, 39, 0.06);
+    overflow: hidden;
+  }
+
+  .mock-tabstrip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 10px 0;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f9fafb;
+  }
+
+  .mock-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    color: #6b7280;
+    font-size: 12px;
+  }
+
+  .mock-tab.is-active {
+    border-color: #e5e7eb;
+    background: #ffffff;
+    color: #1f2328;
+  }
+
+  .mock-tab-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: #d1d5db;
+  }
+
+  /* ── 以下与 src/client/styles.ts 同名同值 ─────────────────────────── */
+
+  .lovart-root {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    background: #ffffff;
+    color: #1f2328;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .lovart-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .lovart-prompt {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 64px;
+    padding: 8px 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fafafa;
+    color: #1f2328;
+    font: inherit;
+  }
+
+  .lovart-prompt:focus {
+    outline: none;
+    border-color: #9ca3af;
+    background: #ffffff;
+  }
+
+  .lovart-form-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .lovart-count-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #6b7280;
+  }
+
+  .lovart-count {
+    padding: 4px 6px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #1f2328;
+    font: inherit;
+  }
+
+  .lovart-primary {
+    padding: 6px 12px;
+    border: 1px solid #111827;
+    border-radius: 6px;
+    background: #111827;
+    color: #ffffff;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .lovart-primary:hover:not(:disabled) {
+    background: #374151;
+  }
+
+  .lovart-primary:disabled {
+    border-color: #d1d5db;
+    background: #d1d5db;
+    cursor: default;
+  }
+
+  .lovart-error {
+    margin: 0;
+    padding: 6px 8px;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    background: #fef2f2;
+    color: #b91c1c;
+  }
+
+  .lovart-empty {
+    margin: 0;
+    color: #6b7280;
+  }
+
+  .lovart-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .lovart-job {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #ffffff;
+  }
+
+  .lovart-job-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .lovart-phase {
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: #f3f4f6;
+    color: #374151;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+  }
+
+  .lovart-model {
+    color: #9ca3af;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .lovart-prompt-text {
+    margin: 0;
+    color: #4b5563;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .lovart-confirm {
+    align-self: flex-start;
+  }
+
+  .lovart-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .lovart-thumb {
+    padding: 0;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #f3f4f6;
+    cursor: zoom-in;
+    overflow: hidden;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+
+  .lovart-thumb:hover {
+    border-color: #d1d5db;
+    box-shadow: 0 2px 8px rgba(17, 24, 39, 0.08);
+  }
+
+  .lovart-thumb-img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+  }
+
+  .lovart-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(17, 24, 39, 0.88);
+    cursor: zoom-out;
+  }
+
+  .lovart-lightbox[hidden] {
+    display: none;
+  }
+
+  .lovart-lightbox-img {
+    max-width: 92vw;
+    max-height: 92vh;
+    object-fit: contain;
+    border-radius: 8px;
+    background: #ffffff;
+  }
+
+  .lovart-lightbox-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 32px;
+    height: 32px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .lovart-icon {
+    width: 16px;
+    height: 16px;
+    color: #6b7280;
+  }
+
+  /* ── P2 新增候选：待搬进 src/client/styles.ts ─────────────────────── */
+
+  .lovart-refs {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .lovart-ref {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #f3f4f6;
+    overflow: hidden;
+  }
+
+  .lovart-ref-img {
+    position: absolute;
+    inset: 0;
+  }
+
+  .lovart-ref-remove {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 1px solid #e5e7eb;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #4b5563;
+    font: inherit;
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .lovart-ref-remove:hover {
+    border-color: #9ca3af;
+    color: #111827;
+  }
+
+  .lovart-ref-add {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 1px dashed #d1d5db;
+    border-radius: 8px;
+    background: #fafafa;
+    color: #6b7280;
+    font: inherit;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .lovart-ref-add:hover {
+    border-color: #9ca3af;
+    background: #ffffff;
+    color: #111827;
+  }
+
+  .lovart-ref-hint {
+    margin: 0;
+    color: #9ca3af;
+    font-size: 11px;
+  }
+
+  .lovart-params {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .lovart-param-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .lovart-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .lovart-field-label {
+    color: #6b7280;
+    font-size: 11px;
+  }
+
+  .lovart-select {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #1f2328;
+    font: inherit;
+  }
+
+  .lovart-slots {
+    margin: 0;
+    color: #6b7280;
+    font-size: 11px;
+  }
+
+  .lovart-slots.is-full {
+    color: #111827;
+    font-weight: 600;
+  }
+
+  .lovart-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .lovart-group + .lovart-group {
+    margin-top: 12px;
+  }
+
+  .lovart-group-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .lovart-group-title {
+    margin: 0;
+    color: #6b7280;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+  }
+
+  .lovart-group-count {
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #f3f4f6;
+    color: #6b7280;
+    font-size: 10px;
+  }
+
+  .lovart-job-tags {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .lovart-pin {
+    padding: 1px 6px;
+    border: 1px dashed #9ca3af;
+    border-radius: 999px;
+    color: #6b7280;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+
+  .lovart-phase.is-active {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .lovart-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: #6b7280;
+    animation: lovart-pulse 1.2s ease-in-out infinite;
+  }
+
+  .lovart-phase.is-waiting {
+    background: #111827;
+    color: #ffffff;
+  }
+
+  .lovart-phase.is-done {
+    border: 1px solid #e5e7eb;
+    background: #f9fafb;
+    color: #6b7280;
+  }
+
+  .lovart-elapsed {
+    color: #9ca3af;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .lovart-job.is-pinned {
+    border-color: #111827;
+    background: #fbfbfb;
+    box-shadow: inset 3px 0 0 #111827;
+  }
+
+  .lovart-job-note {
+    margin: 0;
+    color: #6b7280;
+    font-size: 11px;
+  }
+
+  .lovart-meta {
+    margin: 0;
+    color: #9ca3af;
+    font-size: 11px;
+  }
+
+  .lovart-job-refs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .lovart-job-ref {
+    width: 26px;
+    height: 26px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .lovart-job-ref-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .lovart-job-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .lovart-ghost {
+    padding: 4px 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #374151;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .lovart-ghost:hover {
+    border-color: #9ca3af;
+    color: #111827;
+  }
+
+  /* 方案 B：时间线。左侧一条竖线 + 每条一个点，不复用卡片边框。 */
+  .lovart-stream {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin: 0;
+    padding: 0 0 0 14px;
+    list-style: none;
+  }
+
+  .lovart-stream::before {
+    content: "";
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 3px;
+    width: 1px;
+    background: #e5e7eb;
+  }
+
+  .lovart-entry {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .lovart-entry::before {
+    content: "";
+    position: absolute;
+    top: 5px;
+    left: -14px;
+    width: 7px;
+    height: 7px;
+    border: 1px solid #d1d5db;
+    border-radius: 999px;
+    background: #ffffff;
+  }
+
+  .lovart-entry.is-pinned::before {
+    border-color: #111827;
+    background: #111827;
+  }
+
+  .lovart-entry.is-pinned {
+    margin: -6px -8px 0;
+    padding: 8px 8px 10px;
+    border: 1px solid #111827;
+    border-radius: 10px;
+    background: #fbfbfb;
+  }
+
+  .lovart-entry-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .lovart-entry-thumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .lovart-entry-thumb {
+    width: 60px;
+    height: 60px;
+    padding: 0;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #f3f4f6;
+    cursor: zoom-in;
+    overflow: hidden;
+  }
+
+  .lovart-entry-thumb-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  @keyframes lovart-pulse {
+    0%,
+    100% {
+      opacity: 0.3;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lovart-dot {
+      animation: none;
+    }
+  }
+
+  /* ── 视图切换：只认 body 上的 data-view ─────────────────────────── */
+
+  [data-view] {
+    display: none;
+  }
+
+  body[data-view="a"] [data-view="a"],
+  body[data-view="b"] [data-view="b"],
+  body[data-view="empty"] [data-view="empty"] {
+    display: block;
+  }
+
+  /* ── 占位图：渐变，无外部资源 ───────────────────────────────────── */
+
+  .ph-1 {
+    background:
+      radial-gradient(circle at 30% 25%, #f9fafb 0%, #e5e7eb 42%, #cbd5e1 100%),
+      #e5e7eb;
+  }
+
+  .ph-2 {
+    background:
+      repeating-linear-gradient(135deg, #f3f4f6 0 10px, #e7e5e4 10px 20px),
+      #e7e5e4;
+  }
+
+  .ph-3 {
+    background:
+      radial-gradient(circle at 70% 30%, #fafaf9 0%, #e7e5e4 45%, #a8a29e 100%),
+      #e7e5e4;
+  }
+
+  .ph-4 {
+    background:
+      linear-gradient(160deg, #f5f5f4 0%, #d6d3d1 55%, #9ca3af 100%),
+      #d6d3d1;
+  }
+</style>
+</head>
+<body data-view="a">
+
+<div class="mock-bar">
+  <span class="mock-tag">仅 mock 用</span>
+  <div class="mock-switch" role="group" aria-label="图墙组织方案切换">
+    <button class="mock-btn" type="button" data-view-target="a" aria-pressed="true">方案 A · 按任务分组</button>
+    <button class="mock-btn" type="button" data-view-target="b" aria-pressed="false">方案 B · 时间线混排</button>
+    <button class="mock-btn" type="button" data-view-target="empty" aria-pressed="false">空态</button>
+  </div>
+  <span class="mock-hint">
+    同一份数据画两种组织：A 有分组与卡片边框；B 只有一条时间线和细线分隔。垫图 / 参数 / 重跑属 P2，host 未实现前不渲染。
+  </span>
+</div>
+
+<div class="mock-stage">
+  <aside class="mock-sidebar" aria-label="DSH 侧栏（模拟）">
+    <div class="mock-tabstrip">
+      <span class="mock-tab"><span class="mock-tab-dot"></span>文件</span>
+      <span class="mock-tab is-active">
+        <svg class="lovart-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2 4.5A2.5 2.5 0 0 1 4.5 2h7A2.5 2.5 0 0 1 14 4.5v7a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 2 11.5v-7Z"
+            fill="none" stroke="currentColor" stroke-width="1.2"></path>
+          <circle cx="6" cy="6" r="1" fill="currentColor"></circle>
+          <path d="M3 11l3.2-3.4 2.1 2.1L11 6.8 13 9" fill="none" stroke="currentColor"
+            stroke-width="1.2"></path>
+        </svg>
+        Lovart
+      </span>
+      <span class="mock-tab"><span class="mock-tab-dot"></span>会话</span>
+    </div>
+
+    <div class="lovart-root">
+      <form class="lovart-form">
+        <!-- 垫图在输入框上方、左对齐；本地图提交时经 /file/upload 换成 CDN URL -->
+        <div class="lovart-refs" role="group" aria-label="垫图">
+          <div class="lovart-ref">
+            <span class="lovart-ref-img ph-3"></span>
+            <button class="lovart-ref-remove" type="button" aria-label="移除参考图 1">×</button>
+          </div>
+          <div class="lovart-ref">
+            <span class="lovart-ref-img ph-1"></span>
+            <button class="lovart-ref-remove" type="button" aria-label="移除参考图 2">×</button>
+          </div>
+          <button class="lovart-ref-add" type="button" aria-label="添加参考图">＋</button>
+        </div>
+        <p class="lovart-ref-hint">本地图片，可多选；提交时上传到 Lovart CDN</p>
+
+        <!-- 第 5 个提交被拒后，输入框内容不丢（真实路由会报并发已满） -->
+        <textarea class="lovart-prompt" rows="3">一只穿西装的柴犬，证件照，纯白背景，柔光</textarea>
+
+        <div class="lovart-params">
+          <label class="lovart-field">
+            <span class="lovart-field-label">模型</span>
+            <select class="lovart-select">
+              <option selected>Nano Banana 2</option>
+              <option>Nano Banana Pro</option>
+              <option>Nano Banana 2 Lite</option>
+              <option>GPT Image 2 Low</option>
+              <option>GPT Image 2 Medium</option>
+              <option>GPT Image 2 High</option>
+              <option>GPT Image 2.6 Sunburst Low</option>
+              <option>GPT Image 2.6 Sunburst Medium</option>
+              <option>GPT Image 2.6 Flare Low</option>
+              <option>GPT Image 2.6 Flare Medium</option>
+            </select>
+          </label>
+          <div class="lovart-param-row">
+            <label class="lovart-field">
+              <span class="lovart-field-label">比例</span>
+              <select class="lovart-select">
+                <option selected>3:4</option>
+                <option>1:1</option>
+                <option>4:3</option>
+                <option>16:9</option>
+                <option>9:16</option>
+              </select>
+            </label>
+            <label class="lovart-field">
+              <span class="lovart-field-label">尺寸</span>
+              <select class="lovart-select">
+                <option selected>2K</option>
+                <option>1K</option>
+                <option>4K</option>
+              </select>
+            </label>
+            <label class="lovart-field">
+              <span class="lovart-field-label">张数</span>
+              <select class="lovart-select">
+                <option selected>1</option>
+                <option>2</option>
+                <option>3</option>
+                <option>4</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="lovart-form-row">
+          <p class="lovart-slots is-full">并发 4/4 · 新任务直接拒绝，不排队</p>
+          <button class="lovart-primary" type="submit">开始生成</button>
+        </div>
+      </form>
+
+      <p class="lovart-error">并发已满：4/4，本次请求 1 个</p>
+
+      <!-- 方案 A：按任务分组（待你处理 / 进行中 / 已结束） -->
+      <div data-view="a">
+        <section class="lovart-group">
+          <div class="lovart-group-head">
+            <h3 class="lovart-group-title">待你处理</h3>
+            <span class="lovart-group-count">1</span>
+          </div>
+          <ul class="lovart-list" data-list-a-waiting></ul>
+        </section>
+
+        <section class="lovart-group">
+          <div class="lovart-group-head">
+            <h3 class="lovart-group-title">进行中</h3>
+            <span class="lovart-group-count">4</span>
+          </div>
+          <ul class="lovart-list" data-list-a-active></ul>
+        </section>
+
+        <section class="lovart-group">
+          <div class="lovart-group-head">
+            <h3 class="lovart-group-title">已结束</h3>
+            <span class="lovart-group-count">2</span>
+          </div>
+          <ul class="lovart-list" data-list-a-done></ul>
+        </section>
+      </div>
+
+      <!-- 方案 B：时间线混排（新在上，完成不消失，往下沉） -->
+      <div data-view="b">
+        <ul class="lovart-stream" data-list-b></ul>
+      </div>
+
+      <div data-view="empty">
+        <p class="lovart-empty">还没有任务。免费排队可能要等一会儿。</p>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="lovart-lightbox" data-lightbox hidden>
+  <div class="lovart-lightbox-img" data-lightbox-img></div>
+  <button class="lovart-lightbox-close" type="button" data-lightbox-close aria-label="关闭">✕</button>
+</div>
+
+<script>
+  /**
+   * mock 数据：字段与 LovartMeta 一致，外加 P2 需要的 refs（CDN URL）与 settledAt。
+   * 缩略图不读盘，用 .ph-* 渐变代替。
+   */
+  const NOW = 1762580400000
+
+  const JOBS = [
+    {
+      jobId: 'lovart-7c41d2e8a05b3f96',
+      prompt: '雨后的东京小巷，霓虹倒影，广角',
+      model: 'GPT Image 2 High',
+      ratio: '4:3',
+      size: '2K',
+      phase: 'confirming',
+      files: [],
+      refs: [],
+      confirmCount: 0,
+      createdAt: NOW - 18 * 60 * 1000
+    },
+    {
+      jobId: 'lovart-b3e9a1c04d7f2568',
+      prompt: '手绘地图风插画，山谷与小河，暖色调',
+      model: 'Nano Banana 2 Lite',
+      ratio: '3:4',
+      size: '1K',
+      phase: 'submitting',
+      files: [],
+      refs: [],
+      confirmCount: 0,
+      createdAt: NOW - 5 * 1000
+    },
+    {
+      jobId: 'lovart-2f6c8d1b9a4e7305',
+      prompt: '极简产品静物，一只白色陶瓷杯，柔和阴影',
+      model: 'Nano Banana 2',
+      ratio: '1:1',
+      size: '2K',
+      phase: 'queued',
+      files: [],
+      refs: [],
+      confirmCount: 0,
+      createdAt: NOW - 41 * 1000
+    },
+    {
+      jobId: 'lovart-3f2a1b8c9d0e4f57',
+      prompt: '一只戴帽子的猫，胶片质感，窗边自然光',
+      model: 'Nano Banana Pro',
+      ratio: '3:4',
+      size: '1K',
+      phase: 'generating',
+      files: [],
+      refs: ['https://cdn.lovart.ai/ref/cat-chair.png'],
+      confirmCount: 0,
+      createdAt: NOW - 2 * 60 * 1000 - 14 * 1000
+    },
+    {
+      jobId: 'lovart-5a8e0c2b7d1f6493',
+      prompt: '赛博朋克城市夜景，雨水反光，低角度',
+      model: 'GPT Image 2.6 Sunburst Low',
+      ratio: '16:9',
+      size: '2K',
+      phase: 'generating',
+      files: [],
+      refs: [],
+      confirmCount: 0,
+      createdAt: NOW - 6 * 60 * 1000 - 40 * 1000
+    },
+    {
+      jobId: 'lovart-9b0e4a7d1c2f8e53',
+      prompt: '一只戴帽子的猫，胶片质感，窗边自然光',
+      model: 'Nano Banana Pro',
+      ratio: '1:1',
+      size: '2K',
+      phase: 'done',
+      files: [
+        '/Users/kevin/work/demo/lovart/20261108-120512_一只戴帽子的猫.png',
+        '/Users/kevin/work/demo/lovart/20261108-120512_一只戴帽子的猫-2.png'
+      ],
+      refs: ['https://cdn.lovart.ai/ref/cat-chair.png'],
+      confirmCount: 0,
+      createdAt: NOW - 14 * 60 * 1000,
+      settledAt: NOW - 12 * 60 * 1000 - 52 * 1000
+    },
+    {
+      jobId: 'lovart-1d8f5c3a9e7b2460',
+      prompt: '城市天际线，长焦压缩，黄昏',
+      model: 'Nano Banana 2',
+      ratio: '16:9',
+      size: '1K',
+      phase: 'done',
+      files: ['/Users/kevin/work/demo/lovart/20261108-115340_城市天际线.png'],
+      refs: [],
+      confirmCount: 0,
+      createdAt: NOW - 26 * 60 * 1000,
+      settledAt: NOW - 23 * 60 * 1000 - 29 * 1000
+    }
+  ]
+
+  /** 阶段文案：真组件应由 host 的 PHASE_TABLE 下发 label，前端不做第二份翻译表。 */
+  const PHASES = {
+    submitting: { label: '提交中', className: 'is-active' },
+    queued: { label: '排队中', className: 'is-active' },
+    generating: { label: '生成中', className: 'is-active' },
+    downloading: { label: '下载中', className: 'is-active' },
+    confirming: { label: '待确认', className: 'is-waiting' },
+    done: { label: '已完成', className: 'is-done' },
+    failed: { label: '失败', className: 'is-done' },
+    cancelled: { label: '已取消', className: 'is-done' }
+  }
+
+  const TERMINAL = ['done', 'failed', 'cancelled']
+  const ACTIVE = ['submitting', 'queued', 'generating', 'downloading']
+
+  const el = (tag, className, text) => {
+    const node = document.createElement(tag)
+    if (className) node.className = className
+    if (text !== undefined) node.textContent = text
+    return node
+  }
+
+  /** 与宿主时长文案同一口径：不足 1 分钟只报秒。 */
+  function formatElapsed(ms) {
+    const total = Math.max(1, Math.round(ms / 1000))
+    const minutes = Math.floor(total / 60)
+    const seconds = total % 60
+    return minutes > 0 ? `${minutes} 分 ${String(seconds).padStart(2, '0')} 秒` : `${seconds} 秒`
+  }
+
+  function elapsedOf(job) {
+    if (TERMINAL.includes(job.phase)) return job.settledAt - job.createdAt
+    return NOW - job.createdAt
+  }
+
+  function renderPhase(job) {
+    const meta = PHASES[job.phase]
+    const pill = el('span', `lovart-phase ${meta.className}`)
+    if (meta.className === 'is-active') pill.append(el('span', 'lovart-dot'))
+    pill.append(el('span', '', meta.label))
+    return pill
+  }
+
+  function renderRefs(job, compact) {
+    if (job.refs.length === 0) return null
+    const strip = el('div', compact ? 'lovart-job-refs' : 'lovart-refs')
+    job.refs.forEach((url, index) => {
+      const box = el('div', compact ? 'lovart-job-ref' : 'lovart-ref')
+      box.title = `垫图：${url}`
+      const imgClass = compact ? 'lovart-job-ref-img' : 'lovart-ref-img'
+      box.append(el('span', `${imgClass} ph-${(index % 4) + 1}`))
+      strip.append(box)
+    })
+    return strip
+  }
+
+  function renderHead(job, extraTags) {
+    const head = el('div', 'lovart-job-head')
+    const tags = el('div', 'lovart-job-tags')
+    for (const tag of extraTags || []) tags.append(tag)
+    tags.append(renderPhase(job))
+    const finished = TERMINAL.includes(job.phase)
+    tags.append(
+      el('span', 'lovart-elapsed',
+        finished ? `耗时 ${formatElapsed(elapsedOf(job))}` : `已跑 ${formatElapsed(elapsedOf(job))}`)
+    )
+    head.append(tags, el('span', 'lovart-model', `${job.model} · ${job.ratio} · ${job.size}`))
+    return head
+  }
+
+  function renderConfirm(job) {
+    const fragment = document.createDocumentFragment()
+    fragment.append(el('p', 'lovart-job-note', '需你确认后才会继续；这一步会消耗积分'))
+    const confirm = el('button', 'lovart-primary lovart-confirm', '确认并继续（会扣积分）')
+    confirm.type = 'button'
+    confirm.addEventListener('click', () => {
+      confirm.disabled = true
+      confirm.textContent = '已确认，等待上游继续…'
+    })
+    fragment.append(confirm)
+    return fragment
+  }
+
+  function renderGrid(job) {
+    const grid = el('div', 'lovart-grid')
+    job.files.forEach((file, index) => {
+      const thumb = el('button', 'lovart-thumb')
+      thumb.type = 'button'
+      thumb.dataset.file = file
+      thumb.setAttribute('aria-label', `查看第 ${index + 1} 张`)
+      thumb.append(el('span', `lovart-thumb-img ph-${(index % 4) + 1}`))
+      thumb.addEventListener('click', () => openLightbox((index % 4) + 1, job.prompt))
+      grid.append(thumb)
+    })
+    return grid
+  }
+
+  function rerunButton(job) {
+    const button = el('button', 'lovart-ghost', '重跑')
+    button.type = 'button'
+    button.title = '用同一提示词与参数再生成一次（会重新排队、重新花额度）'
+    button.addEventListener('click', () => {
+      button.disabled = true
+      button.textContent = '已提交重跑'
+    })
+    return button
+  }
+
+  /** 方案 A 的卡片：每张卡 = 一条任务，结果图在卡内成组。 */
+  function renderCard(job) {
+    const pinned = job.phase === 'confirming'
+    const card = el('li', pinned ? 'lovart-job is-pinned' : 'lovart-job')
+    card.dataset.jobId = job.jobId
+
+    const tags = []
+    if (pinned) tags.push(el('span', 'lovart-pin', '置顶'))
+    card.append(renderHead(job, tags))
+    card.append(el('p', 'lovart-prompt-text', job.prompt))
+
+    const refs = renderRefs(job, true)
+    if (refs) card.append(refs)
+
+    if (pinned) card.append(renderConfirm(job))
+
+    if (job.files.length > 0) {
+      card.append(renderGrid(job))
+      card.append(el('p', 'lovart-meta', `${job.files.length} 张 · 已保存到 lovart/`))
+    }
+
+    if (TERMINAL.includes(job.phase)) {
+      const actions = el('div', 'lovart-job-actions')
+      actions.append(rerunButton(job))
+      card.append(actions)
+    }
+
+    return card
+  }
+
+  /** 方案 B 的一条：一条任务 = 时间线上的一行，结果图横排小缩略。 */
+  function renderEntry(job) {
+    const pinned = job.phase === 'confirming'
+    const entry = el('li', pinned ? 'lovart-entry is-pinned' : 'lovart-entry')
+    entry.dataset.jobId = job.jobId
+
+    const head = el('div', 'lovart-entry-head')
+    if (pinned) head.append(el('span', 'lovart-pin', '置顶'))
+    head.append(renderPhase(job))
+    const finished = TERMINAL.includes(job.phase)
+    head.append(
+      el('span', 'lovart-elapsed',
+        finished ? `耗时 ${formatElapsed(elapsedOf(job))}` : `已跑 ${formatElapsed(elapsedOf(job))}`)
+    )
+    head.append(el('span', 'lovart-model', `${job.model} · ${job.ratio} · ${job.size}`))
+    entry.append(head)
+
+    entry.append(el('p', 'lovart-prompt-text', job.prompt))
+
+    const refs = renderRefs(job, true)
+    if (refs) entry.append(refs)
+
+    if (pinned) entry.append(renderConfirm(job))
+
+    if (job.files.length > 0) {
+      const strip = el('div', 'lovart-entry-thumbs')
+      job.files.forEach((file, index) => {
+        const thumb = el('button', 'lovart-entry-thumb')
+        thumb.type = 'button'
+        thumb.dataset.file = file
+        thumb.setAttribute('aria-label', `查看第 ${index + 1} 张`)
+        thumb.append(el('span', `lovart-entry-thumb-img ph-${(index % 4) + 1}`))
+        thumb.addEventListener('click', () => openLightbox((index % 4) + 1, job.prompt))
+        strip.append(thumb)
+      })
+      entry.append(strip)
+      entry.append(el('p', 'lovart-meta', `${job.files.length} 张 · 已保存到 lovart/`))
+    }
+
+    if (TERMINAL.includes(job.phase)) {
+      const actions = el('div', 'lovart-job-actions')
+      actions.append(rerunButton(job))
+      entry.append(actions)
+    }
+
+    return entry
+  }
+
+  /** 组内排序：新在上（用户口径）；已结束按完成时刻倒序，自然下沉。 */
+  function newestFirst(jobs) {
+    return [...jobs].sort((left, right) => {
+      const leftTime = TERMINAL.includes(left.phase) ? (left.settledAt || left.createdAt) : left.createdAt
+      const rightTime = TERMINAL.includes(right.phase) ? (right.settledAt || right.createdAt) : right.createdAt
+      return rightTime - leftTime
+    })
+  }
+
+  const waiting = JOBS.filter((job) => job.phase === 'confirming')
+  const active = newestFirst(JOBS.filter((job) => ACTIVE.includes(job.phase)))
+  const done = newestFirst(JOBS.filter((job) => TERMINAL.includes(job.phase)))
+
+  for (const job of waiting) document.querySelector('[data-list-a-waiting]').append(renderCard(job))
+  for (const job of active) document.querySelector('[data-list-a-active]').append(renderCard(job))
+  for (const job of done) document.querySelector('[data-list-a-done]').append(renderCard(job))
+
+  // 方案 B：待确认置顶（它不点就一直悬着），其余按时间新在上。
+  for (const job of [...waiting, ...active, ...done]) {
+    document.querySelector('[data-list-b]').append(renderEntry(job))
+  }
+
+  const lightbox = document.querySelector('[data-lightbox]')
+  const lightboxImg = document.querySelector('[data-lightbox-img]')
+
+  function openLightbox(variant, alt) {
+    lightboxImg.className = `lovart-lightbox-img ph-${variant}`
+    lightboxImg.setAttribute('role', 'img')
+    lightboxImg.setAttribute('aria-label', alt)
+    lightbox.hidden = false
+  }
+
+  function closeLightbox() {
+    lightbox.hidden = true
+  }
+
+  lightbox.addEventListener('click', closeLightbox)
+  document.querySelector('[data-lightbox-close]').addEventListener('click', (event) => {
+    event.stopPropagation()
+    closeLightbox()
+  })
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeLightbox()
+  })
+
+  document.querySelector('.lovart-form').addEventListener('submit', (event) => {
+    event.preventDefault()
+  })
+
+  for (const button of document.querySelectorAll('[data-view-target]')) {
+    button.addEventListener('click', () => {
+      document.body.dataset.view = button.dataset.viewTarget
+      for (const other of document.querySelectorAll('[data-view-target]')) {
+        other.setAttribute('aria-pressed', String(other === button))
+      }
+      closeLightbox()
+    })
+  }
+</script>
+</body>
+</html>

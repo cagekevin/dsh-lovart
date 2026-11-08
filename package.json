@@ -1,0 +1,70 @@
+{
+  "name": "dsh-lovart",
+  "version": "0.1.0",
+  "description": "把 Lovart 免费排队出图接进 DSH 侧边栏和 agent",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "lovart",
+    "image-generation",
+    "sidebar"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.19",
+    "dsh": ">=0.2.1-rc.1 <0.3.0-0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "dsh-better-sidebar"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "check": "npm test && npm run build && node scripts/post-check.mjs",
+    "adr": "node scripts/adr.mjs audit && node scripts/adr.mjs refs --check",
+    "debt": "node scripts/debt.mjs audit",
+    "arch": "node scripts/arch-index.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.1.0",
+    "@deepseek-ai/schemastery": ">=3.19.0",
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "@babel/parser": "^8.1.0",
+    "@deepseek-ai/cordis": "^4.1.0",
+    "@deepseek-ai/schemastery": "^3.19.0",
+    "@types/node": "^22.19.0",
+    "@types/react": "~18.3.1",
+    "react": "^18.3.1",
+    "tsdown": "^0.23.7",
+    "typescript": "^5.9.3"
+  },
+  "license": "MIT"
+}
