@@ -17,6 +17,15 @@ const CSS = `
   color: #1f2328;
   font-size: 13px;
   line-height: 1.5;
+  /*
+   * 侧栏 tab 宿主（better-sidebar 的 nativeTabHost）是 flex column + height:100%，
+   * 子面板必须自己 flex:1 + min-height:0 + overflow 才能滚：只给 height:100% 时，
+   * 内容变长会把宿主撑开而不是产生滚动条。三条缺一不可。
+   */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 .lovart-form {
   display: flex;
