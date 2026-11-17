@@ -151,27 +151,21 @@ export interface RemoveJobInput {
   readonly sessionId: string
   readonly jobId: string
   readonly removeFiles: (paths: readonly string[]) => Promise<void>
-  /**
-   * 删 `waiting` 的任务要先把它从队列里摘掉：否则 run() 醒来还会去提交一份
-   * 已经不在 store 里的 meta。
-   *
-   * **必填**：做成可选的话，将来某个调用方漏传就变成静默错误。
-   */
-  readonly cancelJob: (meta: LovartMeta) => void
 }
 
 /**
- * 删任务：终态直接删；`waiting` 也允许（它从没碰过上游，删掉等于没提过），
- * 但必须先取消。跑着的任务拒绝 —— 删了会留下一个还在写这份 meta 的 run()。
+ * 删任务：只对终态开放。
+ *
+ * 非终态（含 `waiting`）一律拒绝，因为删它必须先把任务从队列里摘掉 —— 那是「取消」，
+ * 而取消只有一条路（`POST /lovart/api/cancel-all`，且只能由人在侧栏触发）。
+ * 在这里顺手取消等于给 AI 留了第二条取消通道（ADR-0005）。
  *
  * 删的时候连磁盘文件一起删：侧栏删了但 `lovart/` 里还留着，会变成看不见的残留。
  */
 export async function removeJob(input: RemoveJobInput): Promise<void> {
   const meta = findOwnedJob(input.store, input.jobId, input.sessionId)
-  if (meta.phase === 'waiting') {
-    input.cancelJob(meta)
-  } else if (!isTerminal(meta.phase)) {
-    throw LovartError.conflict(`任务还没结束（当前 ${meta.phase}），先取消再删除`)
+  if (!isTerminal(meta.phase)) {
+    throw LovartError.conflict(`任务还没结束（当前 ${meta.phase}），先取消全部任务再删除`)
   }
   await input.removeFiles(meta.files)
   input.store.delete(input.jobId)

@@ -90,8 +90,10 @@ export function apply(ctx: Context, config: ConfigShape): void {
     })
 
   /**
-   * 取消 = 放弃。路由与工具共用这一份，不各写一个 `jobs.kill` 调用
-   * （ADR-0005：同一能力只有一个装配点）。
+   * 取消 = 放弃。**只接给路由**，不接给工具：AI 没有取消能力。
+   *
+   * 取消会让一个正在跑的任务作废，这是人的决定；给模型这个能力等于让它
+   * 在用户没点头时烧掉额度（ADR-0005：同一能力只有一个入口）。
    */
   const cancelJob = (meta: LovartMeta): 'requested' | 'already-finished' =>
     services.jobs.kill(meta.jobId, meta.sessionId, 'user-cancelled')
@@ -130,7 +132,6 @@ export function apply(ctx: Context, config: ConfigShape): void {
         store,
         maxConcurrency: config.maxConcurrency,
         removeFiles: removeImages,
-        cancelJob,
       }),
     ),
   )

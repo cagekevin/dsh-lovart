@@ -479,33 +479,48 @@ test('GET /jobs 只返回本会话的任务', async () => {
   )
 })
 
-test('POST /jobs/:id/cancel 只对非终态开放；终态 409', async () => {
+test('POST /cancel-all 取消本会话所有未结束任务，已结束的跳过', async () => {
   const killed: string[] = []
   const deps = makeDeps({
-    store: storeWith(makeMeta('lovart-1', { phase: 'generating' })),
+    store: storeWith(
+      makeMeta('lovart-1', { phase: 'generating' }),
+      makeMeta('lovart-2', { phase: 'waiting' }),
+      makeMeta('lovart-3', { phase: 'done' }),
+      makeMeta('lovart-4', { phase: 'failed' }),
+    ),
     cancelJob: (meta) => {
       killed.push(meta.jobId)
       return 'requested'
     },
   })
 
-  const ok = await handleRequest(
+  const response = await handleRequest(
     deps,
-    request('POST', '/lovart/api/jobs/lovart-1/cancel', { body: { sessionId: 's-1' } }),
+    request('POST', '/lovart/api/cancel-all', { body: { sessionId: 's-1' } }),
   )
-  assert.equal(ok.status, 200)
-  assert.deepEqual(killed, ['lovart-1'])
+  assert.equal(response.status, 200)
+  // 只碰非终态的两个；done / failed 不重复取消。
+  assert.deepEqual(killed.sort(), ['lovart-1', 'lovart-2'])
+})
 
-  const doneDeps = makeDeps({
-    store: storeWith(makeMeta('lovart-2', { phase: 'done' })),
-    cancelJob: () => 'already-finished',
+test('POST /cancel-all 只看本会话，不动别的会话', async () => {
+  const killed: string[] = []
+  const deps = makeDeps({
+    store: storeWith(
+      makeMeta('lovart-1', { phase: 'generating' }),
+      makeMeta('lovart-9', { sessionId: 's-2', phase: 'generating' }),
+    ),
+    cancelJob: (meta) => {
+      killed.push(meta.jobId)
+      return 'requested'
+    },
   })
-  const refused = await handleRequest(
-    doneDeps,
-    request('POST', '/lovart/api/jobs/lovart-2/cancel', { body: { sessionId: 's-1' } }),
+
+  await handleRequest(
+    deps,
+    request('POST', '/lovart/api/cancel-all', { body: { sessionId: 's-1' } }),
   )
-  assert.equal(refused.status, 409)
-  assert.deepEqual(refused.body, { error: '任务已经结束，不能取消' })
+  assert.deepEqual(killed, ['lovart-1'])
 })
 
 test('取消缺 sessionId：400，不触发 kill', async () => {
@@ -518,12 +533,28 @@ test('取消缺 sessionId：400，不触发 kill', async () => {
     },
   })
 
-  const response = await handleRequest(
-    deps,
-    request('POST', '/lovart/api/jobs/lovart-1/cancel'),
-  )
+  const response = await handleRequest(deps, request('POST', '/lovart/api/cancel-all'))
   assert.equal(response.status, 400)
   assert.equal(called, 0)
+})
+
+test('单个取消接口已删除：POST /jobs/:id/cancel 走不通', async () => {
+  const killed: string[] = []
+  const deps = makeDeps({
+    store: storeWith(makeMeta('lovart-1', { phase: 'generating' })),
+    cancelJob: (meta) => {
+      killed.push(meta.jobId)
+      return 'requested'
+    },
+  })
+
+  const response = await handleRequest(
+    deps,
+    request('POST', '/lovart/api/jobs/lovart-1/cancel', { body: { sessionId: 's-1' } }),
+  )
+  // 该路径已不存在，落到「未知接口」分支，不会再取消任何任务。
+  assert.equal(response.status, 404)
+  assert.deepEqual(killed, [])
 })
 
 test('GET /jobs：按会话返回，带稳定编号 seq', async () => {

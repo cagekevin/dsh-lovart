@@ -130,14 +130,17 @@ export async function revealJob(jobId: string, sessionId: string): Promise<void>
 }
 
 /**
- * 取消 = 放弃这个任务，图也不要了。
+ * 取消本会话所有还没结束的任务 = 放弃它们，图也不要了。
  *
  * 不会让上游停下（C1 没有中止端点），只是本地不再等、不再下载，并清掉已落盘的部分。
+ * 没有「取消单个」：逐个取消容易漏掉一个在跑的任务继续烧额度。
  */
-export async function cancelJob(jobId: string, sessionId: string): Promise<JobMeta> {
-  return readJob(
-    await call('POST', `/jobs/${encodeURIComponent(jobId)}/cancel`, { sessionId }),
-  )
+export async function cancelAllJobs(sessionId: string): Promise<readonly JobMeta[]> {
+  const payload = await call('POST', '/cancel-all', { sessionId })
+  if (!isRecord(payload) || !Array.isArray(payload.jobs)) {
+    throw new Error('后端返回格式不正确')
+  }
+  return payload.jobs.map(readJob)
 }
 
 /** 上传一张参考图：返回上游 CDN URL；失败直接抛，由调用方整批丢弃。 */

@@ -126,8 +126,6 @@ export interface BoardToolDeps {
   readonly maxConcurrency: number
   /** 删任务时连磁盘文件一起删。 */
   readonly removeFiles: (paths: readonly string[]) => Promise<void>
-  /** 删 `waiting` 的任务要先取消，否则 run() 会继续跑一份不在 store 里的 meta。 */
-  readonly cancelJob: (meta: LovartMeta) => 'requested' | 'already-finished'
 }
 
 /** 台面工具：只有「看」与「删」两个动作，不含提交。 */
@@ -137,8 +135,8 @@ export function createBoardTool(deps: BoardToolDeps): ToolDefinitionPort {
     description: [
       '查看本会话的 Lovart 台面，或删掉一个已结束的任务。',
       'snapshot：返回占用槽位、等待队列（含位次）、在跑任务（含提示词与参数）、最近结束的任务（含图片路径）。',
-      'delete：只对已结束的任务有效（还在排队的也可以，会先取消），会连磁盘图片一起删；跨会话的任务看不到也删不掉。',
-      '提交任务用 lovart_generate；取消任务用 job_kill（它是放弃，不是停止）。',
+      'delete：只对**已结束**的任务有效，会连磁盘图片一起删；跨会话的任务看不到也删不掉。还在跑的任务不能删，也不能取消。',
+      '提交任务用 lovart_generate。**取消任务不是你能做的事**：只有人能在侧栏点「取消全部」，用户要取消就让他去点。',
     ].join('\n'),
     parameters: {
       type: 'object',
@@ -186,7 +184,6 @@ export function createBoardTool(deps: BoardToolDeps): ToolDefinitionPort {
           sessionId,
           jobId,
           removeFiles: deps.removeFiles,
-          cancelJob: deps.cancelJob,
         })
         return { deleted: true }
       }

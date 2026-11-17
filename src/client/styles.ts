@@ -210,12 +210,13 @@ const CSS = `
 .lovart-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
 }
 .lovart-top-title {
   color: var(--dsw-alias-label-primary);
   font-weight: 600;
+  /* 标题吃掉剩余宽度，把右侧按钮推到末尾；多一个「取消全部」也不会挤在一起。 */
+  margin-right: auto;
 }
 .lovart-seq {
   color: var(--dsw-alias-label-tertiary);

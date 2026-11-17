@@ -126,7 +126,6 @@ test('removeJob：终态删文件并移出 store', async () => {
     store,
     sessionId: 's-1',
     jobId: 'lovart-1',
-    cancelJob: () => {},
     removeFiles: async (paths) => {
       removed.push([...paths])
     },
@@ -136,23 +135,24 @@ test('removeJob：终态删文件并移出 store', async () => {
   assert.equal(store.get('lovart-1'), undefined)
 })
 
-test('removeJob：waiting 可以删，但先取消，避免 run() 继续跑一份不在 store 里的 meta', async () => {
+test('removeJob：waiting 也不能删 —— 删它必须取消，而取消只有人能触发', async () => {
   const store = storeWith(makeMeta('lovart-1', { phase: 'waiting' }))
-  const cancelled: string[] = []
+  let called = 0
 
-  await removeJob({
-    store,
-    sessionId: 's-1',
-    jobId: 'lovart-1',
-    removeFiles: async () => {},
-    cancelJob: (meta) => {
-      cancelled.push(meta.jobId)
-      return 'requested'
-    },
-  })
+  await assert.rejects(
+    removeJob({
+      store,
+      sessionId: 's-1',
+      jobId: 'lovart-1',
+      removeFiles: async () => {
+        called += 1
+      },
+    }),
+    (error: unknown) => error instanceof LovartError && error.code === 'CONFLICT',
+  )
 
-  assert.deepEqual(cancelled, ['lovart-1'])
-  assert.equal(store.get('lovart-1'), undefined)
+  assert.equal(called, 0)
+  assert.ok(store.get('lovart-1') !== undefined)
 })
 
 test('removeJob：跑着的任务 409，且不动文件、不删记录', async () => {
@@ -164,7 +164,6 @@ test('removeJob：跑着的任务 409，且不动文件、不删记录', async (
       store,
       sessionId: 's-1',
       jobId: 'lovart-1',
-      cancelJob: () => {},
       removeFiles: async () => {
         called += 1
       },
@@ -185,7 +184,6 @@ test('removeJob：跨会话 404，不删别人的任务', async () => {
       sessionId: 's-1',
       jobId: 'lovart-1',
       removeFiles: async () => {},
-      cancelJob: () => {},
     }),
     (error: unknown) => error instanceof LovartError && error.code === 'NOT_FOUND',
   )

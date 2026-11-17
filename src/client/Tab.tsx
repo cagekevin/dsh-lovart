@@ -15,7 +15,7 @@ import {
   type ReactElement,
 } from 'react'
 import {
-  cancelJob,
+  cancelAllJobs,
   confirmJob,
   createJobs,
   deleteJob,
@@ -305,18 +305,21 @@ export function LovartTab(props: TabProps): ReactElement {
   }
 
   /**
-   * 取消 = 放弃这个任务，图也不要了。
+   * 取消全部 = 放弃本会话所有还没结束的任务，图也不要了。
    *
-   * 文案与 title 必须说清「上游可能仍在跑」——C1 没有中止端点，取消只让本地
+   * 文案必须说清「上游可能仍在跑」——C1 没有中止端点，取消只让本地
    * 不再等、不再下载、清掉已落盘的部分。
    */
-  const cancel = async (job: JobMeta): Promise<void> => {
-    setMenu(undefined)
+  const cancelAll = async (): Promise<void> => {
+    setBusy(true)
     try {
-      await cancelJob(job.jobId, props.scope.sessionId)
+      const next = await cancelAllJobs(props.scope.sessionId)
+      setJobs(next)
       setActionError(undefined)
     } catch (cause) {
       setActionError(messageOf(cause))
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -427,11 +430,24 @@ export function LovartTab(props: TabProps): ReactElement {
   const missingCredentials = health !== undefined && !health.credentials
   // 未配置时强制展开；已配置时由顶部按钮手动开关（key 填错要能回去改）。
   const credsVisible = credsOpen || missingCredentials
+  /** 还没结束的任务数；为 0 时顶部不显示「取消全部」（没有可取消的东西）。 */
+  const liveCount = jobs.filter((job) => !job.terminal).length
 
   return (
     <div className="lovart-root">
       <div className="lovart-top">
         <span className="lovart-top-title">Lovart 作图</span>
+        {liveCount > 0 && (
+          <button
+            className="lovart-ghost lovart-cancel-all"
+            type="button"
+            disabled={busy}
+            title="放弃本会话所有没结束的任务，已生成的部分会删掉；上游可能仍在跑"
+            onClick={() => void cancelAll()}
+          >
+            {busy ? '取消中…' : `取消全部（${liveCount}）`}
+          </button>
+        )}
         <button
           className="lovart-ghost"
           type="button"
@@ -686,10 +702,10 @@ export function LovartTab(props: TabProps): ReactElement {
                             <button
                               className="lovart-menu-item"
                               type="button"
-                              title="放弃此任务，已生成的部分会删掉；上游可能仍在跑"
-                              onClick={() => void cancel(job)}
+                              title="放弃本会话所有没结束的任务，已生成的部分会删掉；上游可能仍在跑"
+                              onClick={() => void cancelAll()}
                             >
-                              取消任务
+                              取消全部任务
                             </button>
                           )}
                           {job.terminal && (
@@ -728,9 +744,10 @@ export function LovartTab(props: TabProps): ReactElement {
                       <button
                         className="lovart-ghost lovart-confirm"
                         type="button"
-                        onClick={() => void cancel(job)}
+                        title="放弃本会话所有没结束的任务；上游可能仍在跑"
+                        onClick={() => void cancelAll()}
                       >
-                        取消此任务
+                        取消全部任务
                       </button>
                     ) : (
                       <button

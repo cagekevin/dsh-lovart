@@ -1,5 +1,5 @@
 /**
- * /lovart/api 七条路由（规范 §6 C5）。
+ * /lovart/api 路由（规范 §6 C5）。
  *
  * 注册只发生在 `resolveWebServer(ctx)` 非空之后。本文件同时是**唯一**能触发上游
  * `chat/confirm` 的路径：agent 工具没有确认能力，这条闸门只能由人从侧栏打开。
@@ -38,7 +38,7 @@ const OPTIONS = `${PREFIX}/options`
 const CREDENTIALS = `${PREFIX}/credentials`
 const ITEM = /^\/lovart\/api\/jobs\/([^/]+)$/
 const CONFIRM = /^\/lovart\/api\/jobs\/([^/]+)\/confirm$/
-const CANCEL = /^\/lovart\/api\/jobs\/([^/]+)\/cancel$/
+const CANCEL_ALL = `${PREFIX}/cancel-all`
 const REVEAL = /^\/lovart\/api\/jobs\/([^/]+)\/reveal$/
 
 /** 请求面：node IncomingMessage 的结构子集（只读 URL / method / 异步体）。 */
@@ -81,7 +81,7 @@ export interface RouteDeps {
   readonly resolveCwd: (sessionId: string) => Promise<string>
   /** 只有 confirm 路由会调到；工具侧没有这个依赖。 */
   readonly confirm: (meta: LovartMeta) => Promise<void>
-  /** 取消 = 放弃这个任务（图不要了）；只有侧栏与工具能触发，没有自动路径。 */
+  /** 取消 = 放弃这个任务（图不要了）；只有侧栏能触发，AI 没有任何取消入口。 */
   readonly cancelJob: (meta: LovartMeta) => 'requested' | 'already-finished'
   /** 垫图上传：交给 api.uploadFile，路由不接触凭据与上游地址。 */
   readonly uploadRef: (file: RefUpload) => Promise<string>
@@ -217,10 +217,9 @@ async function route(deps: RouteDeps, request: RouteRequest): Promise<unknown> {
     return confirmRoute(deps, confirmMatch[1] ?? '', requireSessionId(sessionIdOf(request.body)))
   }
 
-  const cancelMatch = CANCEL.exec(path)
-  if (cancelMatch !== null) {
+  if (path === CANCEL_ALL) {
     requireMethod(method, 'POST')
-    return cancelRoute(deps, cancelMatch[1] ?? '', requireSessionId(sessionIdOf(request.body)))
+    return cancelAllRoute(deps, requireSessionId(sessionIdOf(request.body)))
   }
 
   const revealMatch = REVEAL.exec(path)
@@ -359,7 +358,6 @@ async function deleteJob(
     sessionId,
     jobId: id,
     removeFiles: deps.removeFiles,
-    cancelJob: deps.cancelJob,
   })
   return { deleted: true }
 }
@@ -371,18 +369,19 @@ async function confirmRoute(deps: RouteDeps, id: string, sessionId: string): Pro
 }
 
 /**
- * 取消 = 放弃这个任务，图也不要了。
+ * 取消全部 = 放弃本会话所有还没结束的任务，图也不要了。
  *
- * 只对非终态开放；终态再取消是调用方的错，直接 409 说清楚。
- * 返回的视图还是取消前的 phase —— run() 异步结算，侧栏下一轮轮询就变 `已取消`。
+ * 为什么只有「全部」没有「单个」：取消是「这批我都不要了」这个决定，
+ * 逐个取消只会让人反复点、还容易漏掉一个在跑的任务继续烧额度。
+ *
+ * 已经结束的任务跳过，不报错 —— 调用方要的是「清空在跑的」，不是「精确匹配每个 id」。
+ * 返回取消后的视图；`run()` 异步结算，侧栏下一轮轮询就变 `已取消`。
  */
-function cancelRoute(deps: RouteDeps, id: string, sessionId: string): JobView {
-  const meta = findOwnedJob(deps.store, id, sessionId)
-  if (isTerminal(meta.phase)) {
-    throw LovartError.conflict('任务已经结束，不能取消')
-  }
-  deps.cancelJob(meta)
-  return toView(meta)
+function cancelAllRoute(deps: RouteDeps, sessionId: string): JobView[] {
+  const mine = [...deps.store.values()].filter((meta) => meta.sessionId === sessionId)
+  const live = mine.filter((meta) => !isTerminal(meta.phase))
+  for (const meta of live) deps.cancelJob(meta)
+  return mine.map(toView).sort(compareTimeline)
 }
 
 /**
