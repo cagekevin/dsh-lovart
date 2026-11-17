@@ -86,8 +86,8 @@ export function parseIdField(payload: unknown, field: 'thread_id' | 'project_id'
 /** 单次任务最多参考图张数；与参考实现单次粘贴上限一致（没有上游硬上限）。 */
 export const MAX_REFS = 8
 
-/** 单次提交的任务数上限；与并发闸同值，前端下拉也从这里派生。 */
-export const MAX_COUNT = 4
+/** 单次提交的任务数上限；前端下拉也从这里派生。 */
+export const MAX_COUNT = 7
 
 /**
  * 本地排队优先级。
@@ -118,26 +118,24 @@ function parseSize(value: unknown): Size {
   throw LovartError.invalidInput('size 只能是 1K / 2K / 4K')
 }
 
-/** 参考图只接受 http(s) URL，上游只存 URL；空数组等价于不传。 */
+/**
+ * 参考图入参：只做形状校验，**不判形态**。
+ *
+ * 每项可以是 CDN 地址、本地路径或 data URL —— 三者都由 `resolveRefs` 在提交前
+ * 统一变成 CDN 地址。这里不认协议，是因为「什么算合法来源」属于上传层的事：
+ * 在本层白名单化会让本地图在上传之前就被拒，而那正是要支持的用法。
+ *
+ * 空数组等价于不传（下游不下发 `attachments`）。
+ */
 export function parseRefUrls(value: unknown): string[] {
   if (value === undefined) return []
-  if (!Array.isArray(value)) throw LovartError.invalidInput('refs 必须是 URL 数组')
+  if (!Array.isArray(value)) throw LovartError.invalidInput('refs 必须是数组')
   if (value.length > MAX_REFS) throw LovartError.invalidInput(`参考图最多 ${MAX_REFS} 张`)
   return value.map((item) => {
     if (typeof item !== 'string' || item.trim().length === 0) {
-      throw LovartError.invalidInput('refs 里每项都必须是非空 URL')
+      throw LovartError.invalidInput('refs 里每项都必须是非空字符串')
     }
-    const url = item.trim()
-    let parsed: URL
-    try {
-      parsed = new URL(url)
-    } catch {
-      throw LovartError.invalidInput(`参考图不是合法 URL：${url}`)
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw LovartError.invalidInput('参考图只接受 http/https URL')
-    }
-    return url
+    return item.trim()
   })
 }
 

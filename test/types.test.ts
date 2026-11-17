@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  MAX_COUNT,
   parseChatResult,
   parseGenerateArgs,
   parseIdField,
@@ -50,16 +51,24 @@ test('工具入参补默认值且拒绝越界', () => {
   assert.throws(() => parseGenerateArgs({ prompt: '' }), LovartError)
   assert.throws(() => parseGenerateArgs({ prompt: 'cat', ratio: 'wide' }), LovartError)
   assert.throws(() => parseGenerateArgs({ prompt: 'cat', count: 0 }), LovartError)
-  assert.throws(() => parseGenerateArgs({ prompt: 'cat', count: 5 }), LovartError)
+  assert.throws(() => parseGenerateArgs({ prompt: 'cat', count: MAX_COUNT + 1 }), LovartError)
+  assert.equal(parseGenerateArgs({ prompt: 'cat', count: MAX_COUNT }).count, MAX_COUNT)
   assert.equal(parseGenerateArgs({ prompt: 'cat', priority: 'high' }).priority, 'high')
   assert.throws(() => parseGenerateArgs({ prompt: 'cat', priority: 'urgent' }), LovartError)
 })
 
-test('refs 只收 http(s) URL，最多 8 张', () => {
+test('refs 只做形状校验，不判形态；最多 8 张', () => {
+  // CDN 地址、本地路径、data URL 都收：形态由 resolveRefs 在上传前统一。
   assert.deepEqual(parseGenerateArgs({ prompt: 'cat', refs: ['https://cdn/a.png'] }).refs, [
     'https://cdn/a.png',
   ])
-  assert.throws(() => parseGenerateArgs({ prompt: 'cat', refs: ['ftp://cdn/a.png'] }), LovartError)
+  assert.deepEqual(parseGenerateArgs({ prompt: 'cat', refs: ['pics/cat.png'] }).refs, [
+    'pics/cat.png',
+  ])
+  assert.deepEqual(parseGenerateArgs({ prompt: 'cat', refs: ['data:image/png;base64,AAEC'] }).refs, [
+    'data:image/png;base64,AAEC',
+  ])
+  // 只拒绝形状不对的：空串、非数组。
   assert.throws(() => parseGenerateArgs({ prompt: 'cat', refs: [''] }), LovartError)
   assert.throws(() => parseGenerateArgs({ prompt: 'cat', refs: 'https://cdn/a.png' }), LovartError)
   const nine = Array.from({ length: 9 }, (_item, index) => `https://cdn/${index}.png`)

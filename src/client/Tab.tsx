@@ -22,6 +22,7 @@ import {
   listJobs,
   loadHealth,
   loadOptions,
+  revealJob,
   saveCredentials,
   uploadRef,
   type Health,
@@ -387,6 +388,20 @@ export function LovartTab(props: TabProps): ReactElement {
   }
 
   /**
+   * 打开文件所在位置：让系统文件管理器打开 `lovart/` 目录。
+   *
+   * 路径由 host 从任务自己的 files 里取，前端不传路径 —— 侧栏拿不到任意目录的打开能力。
+   */
+  const revealFolder = async (job: JobMeta): Promise<void> => {
+    setMenu(undefined)
+    try {
+      await revealJob(job.jobId, props.scope.sessionId)
+    } catch (cause) {
+      setActionError(messageOf(cause))
+    }
+  }
+
+  /**
    * 删任务：两步，第一次点只把按钮变成「确认删除」。
    *
    * 删了不可恢复，图也会一起删掉；没有这一步，误点一次就没了。
@@ -657,6 +672,16 @@ export function LovartTab(props: TabProps): ReactElement {
                           >
                             复制提示词
                           </button>
+                          {job.terminal && job.files.length > 0 && (
+                            <button
+                              className="lovart-menu-item"
+                              type="button"
+                              title="用系统文件管理器打开图片所在的文件夹"
+                              onClick={() => void revealFolder(job)}
+                            >
+                              打开文件所在位置
+                            </button>
+                          )}
                           {!job.terminal && (
                             <button
                               className="lovart-menu-item"

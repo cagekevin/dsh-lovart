@@ -247,7 +247,7 @@ function startOne(context: StartJobsInput, seq: number): string {
 
               meta.urls = result.urls
               setPhase(job, meta, 'downloading')
-              const cwd = await resolveCwd(context)
+              const cwd = await resolveSessionCwd(context)
               if (cancelled) return finishCancelled(job, meta, submittedBy)
               meta.files = await saveImages({
                 client: context.client,
@@ -370,17 +370,26 @@ async function finishCancelled(
   }
 }
 
-/** cwd 顺序固定：workingDirectory.ensure → sessions.header.cwd → 报错（规范 §3 P5）。 */
-async function resolveCwd(context: StartJobsInput): Promise<string> {
-  if (context.workingDirectory !== undefined && context.agent !== undefined) {
+/**
+ * cwd 顺序固定：workingDirectory.ensure → sessions.header.cwd → 报错（规范 §3 P5）。
+ *
+ * 导出是因为「提交前解析参考图路径」也要用同一套顺序；复制第二份必然写歪。
+ */
+export async function resolveSessionCwd(input: {
+  readonly workingDirectory: WorkingDirectoryService | undefined
+  readonly sessions: SessionsService
+  readonly sessionId: SessionId
+  readonly agent: AgentHandle | undefined
+}): Promise<string> {
+  if (input.workingDirectory !== undefined && input.agent !== undefined) {
     try {
       // 不传工具调用的 signal：任务已在后台跑，调用方的取消不该中途掐断取目录。
-      return await context.workingDirectory.ensure(context.agent)
+      return await input.workingDirectory.ensure(input.agent)
     } catch {
       // 服务存在但拿不到目录时，回落到 session header，不落 process.cwd。
     }
   }
-  const cwd = context.sessions.get(context.sessionId)?.header.cwd
+  const cwd = input.sessions.get(input.sessionId)?.header.cwd
   if (cwd === undefined || cwd.length === 0) {
     throw LovartError.cwdUnknown('无法确定会话工作目录')
   }

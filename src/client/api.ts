@@ -121,6 +121,15 @@ export async function deleteJob(jobId: string, sessionId: string): Promise<void>
 }
 
 /**
+ * 在系统文件管理器里打开某张图所在的文件夹。
+ *
+ * 不传路径：host 从 `meta.files[0]` 自己取，前端给路径等于开一个任意目录后门。
+ */
+export async function revealJob(jobId: string, sessionId: string): Promise<void> {
+  await call('POST', `/jobs/${encodeURIComponent(jobId)}/reveal`, { sessionId })
+}
+
+/**
  * 取消 = 放弃这个任务，图也不要了。
  *
  * 不会让上游停下（C1 没有中止端点），只是本地不再等、不再下载，并清掉已落盘的部分。

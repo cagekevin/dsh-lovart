@@ -32,6 +32,8 @@ function setup(ids: string[], recorded: unknown[] = []) {
   for (const id of ids) store.set(id, metaOf(id))
   const tool = createLovartTool({
     store,
+    // 单测只关心提交参数，参考图解析原样透传（真实解析在 refs.test.ts 覆盖）。
+    resolveRefs: async (refs) => [...refs],
     startJobs: (args) => {
       recorded.push(args)
       return ids

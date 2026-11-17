@@ -52,7 +52,7 @@ export interface ClientOptions {
 
 const API_TIMEOUT_MS = 30_000
 const DOWNLOAD_TIMEOUT_MS = 120_000
-/** 上传可能到 10MB，给比普通 API 更长的超时；仍然只在本文件出网。 */
+/** 上传比普通 API 慢得多（大图可能要几十秒），给更长的超时；仍然只在本文件出网。 */
 const UPLOAD_TIMEOUT_MS = 120_000
 const USER_AGENT = 'LovartAgentSkill/1.0'
 

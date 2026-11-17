@@ -23,7 +23,7 @@ import {
   RATIO_OPTIONS,
   SIZE_OPTIONS,
 } from './lovart/models.ts'
-import { parseRefUpload, type RefUpload } from './lovart/refs.ts'
+import { parseRefUpload, resolveRefs, type RefUpload } from './lovart/refs.ts'
 import {
   MAX_COUNT,
   MAX_REFS,
@@ -39,6 +39,7 @@ const CREDENTIALS = `${PREFIX}/credentials`
 const ITEM = /^\/lovart\/api\/jobs\/([^/]+)$/
 const CONFIRM = /^\/lovart\/api\/jobs\/([^/]+)\/confirm$/
 const CANCEL = /^\/lovart\/api\/jobs\/([^/]+)\/cancel$/
+const REVEAL = /^\/lovart\/api\/jobs\/([^/]+)\/reveal$/
 
 /** 请求面：node IncomingMessage 的结构子集（只读 URL / method / 异步体）。 */
 export interface WebServerRequest {
@@ -76,6 +77,8 @@ export interface RouteDeps {
   readonly store: Store<LovartMeta>
   /** 与工具共用 startLovartJobs，不另开一条提交路径。 */
   readonly startJobs: (args: GenerateArgs, sessionId: string) => string[]
+  /** 会话工作目录；解析本地参考图路径要用（与落盘同一套顺序）。 */
+  readonly resolveCwd: (sessionId: string) => Promise<string>
   /** 只有 confirm 路由会调到；工具侧没有这个依赖。 */
   readonly confirm: (meta: LovartMeta) => Promise<void>
   /** 取消 = 放弃这个任务（图不要了）；只有侧栏与工具能触发，没有自动路径。 */
@@ -84,6 +87,13 @@ export interface RouteDeps {
   readonly uploadRef: (file: RefUpload) => Promise<string>
   /** 删任务时连磁盘文件一起删；路径只来自 meta.files，不在这里拼。 */
   readonly removeFiles: (paths: readonly string[]) => Promise<void>
+  /**
+   * 在系统文件管理器里打开某个图片所在的文件夹。
+   *
+   * 路径由路由从 `meta.files[0]` 取，**不接受前端传路径**：否则等于给侧栏
+   * 开一个「打开任意目录」的后门。平台差异由实现方收敛。
+   */
+  readonly openFolder: (filePath: string) => Promise<void>
   readonly credentialsConfigured: () => Promise<boolean>
   /** 当前凭据源能不能被 set 写入；决定侧栏是否显示输入框。 */
   readonly credentialsWritable: () => Promise<boolean>
@@ -213,6 +223,12 @@ async function route(deps: RouteDeps, request: RouteRequest): Promise<unknown> {
     return cancelRoute(deps, cancelMatch[1] ?? '', requireSessionId(sessionIdOf(request.body)))
   }
 
+  const revealMatch = REVEAL.exec(path)
+  if (revealMatch !== null) {
+    requireMethod(method, 'POST')
+    return revealRoute(deps, revealMatch[1] ?? '', requireSessionId(sessionIdOf(request.body)))
+  }
+
   const itemMatch = ITEM.exec(path)
   if (itemMatch !== null) {
     const id = itemMatch[1] ?? ''
@@ -279,7 +295,10 @@ async function createJobs(
     )
   }
   const args = parseGenerateArgs(request.body)
-  const ids = deps.startJobs(args, sessionId)
+  // 参考图三种形态（CDN / 本地路径 / data URL）在这里统一成 CDN 地址；
+  // 必须在 startJobs 之前做完：count > 1 时同批图只上传一次，各 job 复用同一批 URL。
+  const refs = await resolveRefs(args.refs, await deps.resolveCwd(sessionId), deps.uploadRef)
+  const ids = deps.startJobs({ ...args, refs }, sessionId)
   return {
     jobs: ids.map((id) => {
       const meta = deps.store.get(id)
@@ -364,6 +383,26 @@ function cancelRoute(deps: RouteDeps, id: string, sessionId: string): JobView {
   }
   deps.cancelJob(meta)
   return toView(meta)
+}
+
+/**
+ * 打开某张图所在的文件夹。
+ *
+ * 只对**有落盘文件**的终态任务开放：没图就没有「所在位置」。
+ * 路径取自 `meta.files[0]`，前端一个字节的路径都不传 —— 这条闸门是防后门的关键。
+ */
+async function revealRoute(
+  deps: RouteDeps,
+  id: string,
+  sessionId: string,
+): Promise<{ revealed: true }> {
+  const meta = findOwnedJob(deps.store, id, sessionId)
+  const first = meta.files[0]
+  if (first === undefined) {
+    throw LovartError.conflict('该任务还没有落盘的图片，没有可打开的文件夹')
+  }
+  await deps.openFolder(first)
+  return { revealed: true }
 }
 
 function requireMethod(actual: string, expected: string): void {

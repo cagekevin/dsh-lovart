@@ -14,6 +14,7 @@ import {
   type RouteDeps,
   type RouteRequest,
 } from '../src/host/route.ts'
+import { MAX_COUNT } from '../src/host/lovart/types.ts'
 
 function makeMeta(jobId: string, overrides: Partial<LovartMeta> = {}): LovartMeta {
   return {
@@ -39,8 +40,11 @@ function makeDeps(overrides: Partial<RouteDeps> = {}): RouteDeps {
   return {
     store: createStore<LovartMeta>(),
     startJobs: () => [],
+    // 测试里的 refs 都是 CDN 地址，解析不落地；给个固定 cwd 就够。
+    resolveCwd: async () => '/tmp/session',
     uploadRef: async () => 'https://cdn.example.com/ref.png',
     removeFiles: async () => {},
+    openFolder: async () => {},
     confirm: async () => {},
     cancelJob: () => 'requested',
     credentialsConfigured: async () => false,
@@ -394,7 +398,7 @@ test('GET /options 全部从模型表派生', async () => {
   assert.deepEqual(body.ratios, ['1:1', '3:4', '4:3', '16:9', '9:16'])
   assert.deepEqual(body.sizes, ['1K', '2K', '4K'])
   assert.deepEqual(body.defaults, { model: 'nano-bn-2', ratio: '3:4', size: '2K' })
-  assert.equal(body.maxCount, 4)
+  assert.equal(body.maxCount, MAX_COUNT)
   assert.equal(body.maxRefs, 8)
 })
 

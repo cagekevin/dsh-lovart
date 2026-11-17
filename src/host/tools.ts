@@ -20,6 +20,11 @@ import type { Store } from './job/store.ts'
 export interface LovartToolDeps {
   /** 提交任务；返回 ctx.jobs 发放的 id。由 index.ts 适配到 startLovartJobs。 */
   readonly startJobs: (args: GenerateArgs, context: ToolRunContext) => string[]
+  /** 参考图三种形态（CDN / 本地路径 / data URL）统一成 CDN 地址。 */
+  readonly resolveRefs: (
+    refs: readonly string[],
+    context: ToolRunContext,
+  ) => Promise<readonly string[]>
   readonly store: Store<LovartMeta>
 }
 
@@ -45,6 +50,7 @@ export function createLovartTool(deps: LovartToolDeps): ToolDefinitionPort {
       '提交 Lovart 出图任务，立即返回 job id，不等图（免费排队可能要几十分钟）。',
       `count 是任务数（1..${MAX_COUNT}），每个任务一张图；同时提交给上游的数量有上限（默认 4），超出的自动排队，不会报错，也不需要重试。`,
       '用户说「这张先出」时用 priority: "high" —— 它只对还在排队（waiting）的任务有效，已经提交给上游的改不了顺序。',
+      'refs 直接给本地图片路径就行（相对路径按会话工作目录解析），不需要先上传；也接受 data URL 与 CDN 地址。',
       '用 job_list 看本会话所有任务（含用户在侧栏提交的），用 job_output 取结果，job_kill 取消。',
       '任务完成时会收到 background job 通知：用 job_output 拿到图片绝对路径，把「生成完了 + 路径」告诉用户，然后停下，不要做其他事。',
       '若结果里写明是用户在侧栏自己提交的任务，什么都不要做。',
@@ -67,7 +73,7 @@ export function createLovartTool(deps: LovartToolDeps): ToolDefinitionPort {
           type: 'array',
           items: { type: 'string' },
           maxItems: MAX_REFS,
-          description: `参考图 CDN 地址，最多 ${MAX_REFS} 张；本地图片先用侧栏上传换取 URL`,
+          description: `参考图，最多 ${MAX_REFS} 张；可以是本地图片路径（相对路径按会话工作目录解析）、data URL 或已有的 CDN 地址`,
         },
         priority: {
           type: 'string',
@@ -90,7 +96,9 @@ export function createLovartTool(deps: LovartToolDeps): ToolDefinitionPort {
     isConcurrencySafe: () => true,
     async execute(args, context) {
       const parsed = parseGenerateArgs(args)
-      const ids = deps.startJobs(parsed, context)
+      // 解析必须在 startJobs 之前：count > 1 时同批图只上传一次，各 job 复用同一批 URL。
+      const refs = await deps.resolveRefs(parsed.refs, context)
+      const ids = deps.startJobs({ ...parsed, refs: [...refs] }, context)
       return {
         jobs: ids.map((id) => {
           const meta = deps.store.get(id)

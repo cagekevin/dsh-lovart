@@ -12,9 +12,10 @@ import { LovartError } from './errors.ts'
 import { removeImages } from './job/download.ts'
 import { createSlotQueue } from './job/queue.ts'
 import { LOVART_SKILL } from './skill.ts'
-import { DEFAULT_TIMINGS, startLovartJobs, type LovartMeta } from './job/run.ts'
+import { DEFAULT_TIMINGS, resolveSessionCwd, startLovartJobs, type LovartMeta } from './job/run.ts'
 import { createStore } from './job/store.ts'
 import { createLovartApi } from './lovart/api.ts'
+import { resolveRefs } from './lovart/refs.ts'
 import { createLovartClient, type Credential } from './lovart/request.ts'
 import type { GenerateArgs } from './lovart/types.ts'
 import {
@@ -26,6 +27,7 @@ import {
   type WorkingDirectoryService,
 } from './platform.ts'
 import { confirmJob, registerRoutes, resolveWebServer } from './route.ts'
+import { openFolderOfFile } from './reveal.ts'
 import { createBoardTool, createLovartTool } from './tools.ts'
 
 /** Loader 读取的配置 schema；与 apply 的第二个参数是同一份定义。 */
@@ -106,6 +108,17 @@ export function apply(ctx: Context, config: ConfigShape): void {
           if (sessionId === undefined) throw LovartError.invalidInput('无法确定当前会话')
           return startJobs(args, sessionId, execution.agent)
         },
+        resolveRefs: async (refs, execution) => {
+          const sessionId = execution.agent?.id
+          if (sessionId === undefined) throw LovartError.invalidInput('无法确定当前会话')
+          const cwd = await resolveSessionCwd({
+            workingDirectory,
+            sessions: services.sessions,
+            sessionId,
+            agent: execution.agent,
+          })
+          return resolveRefsFor(refs, cwd)
+        },
       }),
     ),
   )
@@ -122,15 +135,36 @@ export function apply(ctx: Context, config: ConfigShape): void {
     ),
   )
 
+  /**
+   * 参考图统一成 CDN 地址；工具与侧栏共用这一份（ADR-0005）。
+   *
+   * 三种形态收敛到同一次 upload：CDN 地址原样返回、data URL 解字节、本地路径读文件。
+   * 上传走 `api.uploadFile`，凭据与上游地址不出 host。
+   */
+  const resolveRefsFor = (
+    refs: readonly string[],
+    cwd: string,
+  ): Promise<string[]> => resolveRefs(refs, cwd, (file) => api.uploadFile(file))
+
   const webServer = resolveWebServer(ctx)
   if (webServer) {
     ctx.effect(() =>
       registerRoutes(webServer, {
         store,
         startJobs: (args, sessionId) => startJobs(args, sessionId, undefined),
+        // 侧栏提交同样要解析参考图；cwd 用与落盘一致的那套顺序。
+        resolveCwd: (sessionId) =>
+          resolveSessionCwd({
+            workingDirectory,
+            sessions: services.sessions,
+            sessionId,
+            agent: undefined,
+          }),
         // 垫图只在这里转发：浏览器给 data URL，凭据与上游地址都留在 host。
         uploadRef: (file) => api.uploadFile(file),
         removeFiles: removeImages,
+        // 打开文件夹：平台差异在 reveal.ts 收敛，这里只转发路径。
+        openFolder: openFolderOfFile,
         // 确认只从这里进：agent 工具没有 confirm 能力（规范 §5.3）。
         confirm: (meta) => confirmJob(meta, (threadId) => api.confirm(threadId)),
         // 取消 = 放弃：kill 只让本地不再等，上游该跑完还是跑完。
