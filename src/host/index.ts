@@ -33,8 +33,8 @@ import { createBoardTool, createLovartTool } from './tools.ts'
 /** Loader 读取的配置 schema；与 apply 的第二个参数是同一份定义。 */
 export { Config } from './config.ts'
 
-/** Cordis 插件名。 */
-export const name = 'dsh-lovart'
+/** Cordis 插件名；与包名一致（包名不用 dsh- 开头，见 cordis.patch.yml 的说明）。 */
+export const name = 'lovart-dsh-plugin'
 
 /** 只声明必需服务；webServer / workingDirectory 走运行时探测（规范 §6 C3）。 */
 export const inject = ['tools', 'credentials', 'jobs', 'sessions', 'skills']

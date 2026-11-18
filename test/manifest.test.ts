@@ -27,7 +27,10 @@ test('package.json：零运行时依赖', () => {
 
 test('package.json：ESM 入口与 dsh 清单', () => {
   const manifest = readManifest()
-  assert.equal(manifest.name, 'dsh-lovart')
+  // 包名不能以 dsh- 开头：桌面端会把这类包当成自己的内部预设插件，
+  // 不在它的清单里就判为孤立并强制卸载（详见 cordis.patch.yml 的注释）。
+  assert.equal(manifest.name, 'lovart-dsh-plugin')
+  assert.ok(!String(manifest.name).startsWith('dsh-'), '包名不能以 dsh- 开头')
   assert.equal(manifest.type, 'module')
   assert.equal(manifest.main, 'lib/index.js')
 

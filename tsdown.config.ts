@@ -67,6 +67,6 @@ export default defineConfig([
     outExtensions: () => ({ js: '.js' }),
     dts: false,
     clean: false,
-    plugins: [clientLoader('dsh-lovart')],
+    plugins: [clientLoader('lovart-dsh-plugin')],
   },
 ])

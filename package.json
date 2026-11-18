@@ -1,5 +1,5 @@
 {
-  "name": "dsh-lovart",
+  "name": "lovart-dsh-plugin",
   "version": "0.1.0",
   "description": "把 Lovart 免费排队出图接进 DSH 侧边栏和 agent",
   "keywords": [

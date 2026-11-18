@@ -11,8 +11,8 @@ import { createElement, type ComponentType, type ReactNode } from 'react'
 import { LovartIcon, LovartTab, type TabProps } from './Tab.tsx'
 import { ensureStyles } from './styles.ts'
 
-/** Cordis 插件名；loader 以本文件导出为准。 */
-export const name = 'dsh-lovart'
+/** Cordis 插件名；与包名一致（包名不用 dsh- 开头，见 cordis.patch.yml 的说明）。 */
+export const name = 'lovart-dsh-plugin'
 
 /** 服务名，不是包名。 */
 export const inject = ['betterSidebar']
